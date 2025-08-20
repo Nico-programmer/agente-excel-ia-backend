@@ -73,9 +73,10 @@ def process_excel():
             f"--- Instrucción del Usuario ---\n"
             f"Instrucción: {instruction}\n"
             f"--- Ejemplo de Tarea ---\n"
-            f"Si la instrucción es 'Crea una columna 'Total' sumando las columnas 'Ventas' y 'Costos'', la respuesta debería ser:\n"
+            f"Si la instrucción es 'Suma la columna 'Ventas' y coloca el resultado en la última fila', la respuesta debería ser:\n"
             f"def modificar_df(df):\n"
-            f"    df['Total'] = df['Ventas'] + df['Costos']\n"
+            f"    df.loc[len(df)] = [None] * len(df.columns)\n"
+            f"    df.loc[len(df) - 1, 'Ventas'] = df['Ventas'].sum()\n"
             f"    return df"
         )
         
