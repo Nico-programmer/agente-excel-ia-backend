@@ -8,22 +8,15 @@ import numpy as np
 from dotenv import load_dotenv
 
 # --- Configuración Inicial ---
-# Carga las variables desde el archivo .env (API KEY IA)
 load_dotenv()
-
-# Configura la API de Gemini
 genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
-# Elige el modelo de IA que usaremos
 model = genai.GenerativeModel('gemini-1.5-flash')
-
-# Crea una aplicación web con Flask
 app = Flask(__name__)
 
 # --- Lógica de Respaldo para Tareas Comunes (Fallback) ---
 def fallback_processing(df, instruction):
     """
     Intenta procesar la instrucción con lógica predefinida si la IA falla.
-    Puedes añadir más tareas comunes aquí de manera modular.
     """
     instruction_lower = instruction.lower()
 
@@ -57,55 +50,58 @@ def fallback_processing(df, instruction):
         except:
             return None
     
-    # Puedes añadir más lógicas de respaldo aquí
-    # if "filtrar" in instruction_lower:
-    #    ...
-
     return None
 
 # --- La Ruta Principal del Servidor ---
 @app.route('/process-excel', methods=['POST'])
 def process_excel():
-    if 'file' not in request.files or 'instruction' not in request.form:
-        return jsonify({"error": "Archivo o instrucción faltante."}), 400
-
-    file = request.files['file']
     instruction = request.form.get('instruction', '')
+    file = request.files.get('file')
+
+    if not instruction:
+        return jsonify({"error": "Por favor, ingresa una instrucción."}), 400
+
+    # Determinar si el usuario subió un archivo o quiere crear uno
+    if file:
+        try:
+            df = pd.read_excel(file)
+        except Exception as e:
+            return jsonify({"error": "No se pudo leer el archivo de Excel.", "detalle_tecnico": str(e)}), 400
+    else:
+        df = pd.DataFrame()
+        if not ("crea un archivo" in instruction.lower() or "crea un excel" in instruction.lower()):
+            return jsonify({"error": "Para crear un archivo, la instrucción debe empezar con 'crea un archivo' o 'crea un excel'."}), 400
 
     try:
-        df = pd.read_excel(file)
-    except Exception as e:
-        return jsonify({"error": "No se pudo leer el archivo de Excel.", "detalle_tecnico": str(e)}), 400
-
-    try:
-        # PASO CLAVE: EXTRAER INFORMACIÓN DEL DOCUMENTO
+        # Extraer el contexto del documento para la IA
         columnas = list(df.columns)
         columnas_str = ", ".join([f"'{col}'" for col in columnas])
         primeras_filas = df.head(5).to_string()
 
-        # --- PRIMER INTENTO: Generación de código con IA ---
+        # Generar el prompt enriquecido
         prompt = (
             f"Basándote en la siguiente instrucción de usuario y en el contexto del documento de Excel, "
             f"escribe **ÚNICAMENTE** una función de Python llamada 'modificar_df' "
             f"que tome un DataFrame de Pandas 'df' y lo modifique, y que devuelva el DataFrame modificado.\n"
+            f"Si el DataFrame 'df' está vacío, tu tarea es crearlo en base a la instrucción del usuario.\n"
             f"El código debe ser sintácticamente correcto y estar listo para ser ejecutado. "
             f"No incluyas ningún texto o explicación adicional.\n"
             f"--- Contexto del Documento ---\n"
-            f"Columnas del DataFrame: {columnas_str}\n"
+            f"Columnas del DataFrame: {columnas_str if columnas else 'No hay columnas. El DataFrame está vacío.'}\n"
             f"Primeras 5 filas:\n{primeras_filas}\n"
             f"--- Instrucción del Usuario ---\n"
             f"Instrucción: {instruction}\n"
-            f"--- Ejemplo de Tarea ---\n"
-            f"Si la instrucción es 'Crea una columna 'Total' sumando las columnas 'Ventas' y 'Costos'', la respuesta debería ser:\n"
+            f"--- Ejemplos de Tarea ---\n"
+            f"1. Si la instrucción es 'Crea un archivo con las columnas 'Nombre', 'Edad', 'Ciudad'', la respuesta debería ser:\n"
             f"def modificar_df(df):\n"
-            f"    df['Total'] = df['Ventas'] + df['Costos']\n"
-            f"    return df"
+            f"    df = pd.DataFrame(columns=['Nombre', 'Edad', 'Ciudad'])\n"
+            f"    return df\n\n"
         )
         
         response = model.generate_content(prompt)
         gemini_code = response.text.strip('`').strip()
 
-        # Validaciones de seguridad para evitar código malicioso
+        # Validaciones de seguridad
         if "os." in gemini_code or "subprocess" in gemini_code or "shutil" in gemini_code:
             raise ValueError("Código malicioso detectado.")
 
@@ -128,7 +124,7 @@ def process_excel():
         )
 
     except Exception as e:
-        # --- SEGUNDO INTENTO: Lógica de respaldo (Fallback) ---
+        # Lógica de respaldo
         print(f"Error con IA, intentando lógica de respaldo: {e}")
         df_modified_fallback = fallback_processing(df.copy(), instruction)
         
