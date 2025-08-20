@@ -32,19 +32,28 @@ def fallback_processing(df, instruction):
         except:
             return None
 
-    # Filtrar filas por condición
-    if "filtra" in instruction_lower and "columna" in instruction_lower:
+    # --- FILTROS ---
+    if "filtra" in instruction_lower and "mayor que" in instruction_lower:
         try:
-            col_name = instruction.split("columna '")[1].split("'")[0]
-            if "menor que" in instruction_lower:
-                value = float(re.findall(r"menor que (\d+\.?\d*)", instruction_lower)[0])
-                return df[df[col_name] < value]
-            elif "mayor que" in instruction_lower:
-                value = float(re.findall(r"mayor que (\d+\.?\d*)", instruction_lower)[0])
-                return df[df[col_name] > value]
-            elif "igual a" in instruction_lower:
-                value = re.findall(r"igual a (\d+\.?\d*)", instruction_lower)[0]
-                return df[df[col_name] == float(value)]
+            col_name = instruction.split("'")[1]
+            value = float(instruction.split("mayor que")[1].strip().split()[0])
+            df = df[df[col_name] > value]
+        except:
+            return None
+    
+    if "filtra" in instruction_lower and "menor que" in instruction_lower:
+        try:
+            col_name = instruction.split("'")[1]
+            value = float(instruction.split("menor que")[1].strip().split()[0])
+            df = df[df[col_name] < value]
+        except:
+            return None
+
+    # --- CREAR COLUMNA CONDICIONAL ---
+    if "columna" in instruction_lower and "aprobado" in instruction_lower:
+        try:
+            col_name = instruction.split("'")[1]
+            df['Estado'] = np.where(df[col_name] >= 3.0, 'Aprobado', 'Reprobado')
         except:
             return None
 
