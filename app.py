@@ -21,7 +21,7 @@ def fallback_processing(df, instruction):
     """
 
     # Detectar si la instrucción es "crear archivo con columnas y valores"
-    pattern = r"columna '([^']+)' \(los valores.*?son ([^)]+)\)"
+    pattern = r"columna '([^']+)'[^\)]*?son ([^)]*)"
     matches = re.findall(pattern, instruction, flags=re.IGNORECASE)
 
     if matches:
