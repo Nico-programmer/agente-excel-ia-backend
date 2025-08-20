@@ -96,6 +96,16 @@ def process_excel():
             f"def modificar_df(df):\n"
             f"    df = pd.DataFrame(columns=['Nombre', 'Edad', 'Ciudad'])\n"
             f"    return df\n\n"
+            f"2. Si la instrucción es 'Crea un archivo con las columnas 'Nombre', 'Edad', 'Ciudad' con valores: "
+            f"Nombre: Juan, María, Pedro | Edad: 25, 30, 22 | Ciudad: Madrid, Barcelona, Valencia', la respuesta debería ser:\n"
+            f"def modificar_df(df):\n"
+            f"    data = {{\n"
+            f"        'Nombre': ['Juan', 'María', 'Pedro'],\n"
+            f"        'Edad': [25, 30, 22],\n"
+            f"        'Ciudad': ['Madrid', 'Barcelona', 'Valencia']\n"
+            f"    }}\n"
+            f"    df = pd.DataFrame(data)\n"
+            f"    return df\n\n"
         )
         
         response = model.generate_content(prompt)
