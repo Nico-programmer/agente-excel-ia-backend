@@ -13,65 +13,46 @@ genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-1.5-flash')
 app = Flask(__name__)
 
-# --- Prompt base para Gemini ---
-PROMPT_BASE = """
-Eres un asistente experto en manipulación de DataFrames de Pandas.
-Tu única tarea es escribir una función de Python llamada modificar_df(df) 
-que modifique el DataFrame según la instrucción del usuario y devuelva el resultado.
-
-Reglas estrictas:
-- Siempre devuelve solo una función válida de Python, sin texto adicional.
-- Usa pandas (pd) y numpy (np).
-- El DataFrame puede estar vacío (en ese caso debes crearlo según la instrucción).
-- El usuario puede pedir tareas básicas como:
-  - Crear DataFrames desde cero (con columnas y valores si se especifica).
-  - Filtrar filas (ejemplo: 'Notas' > 3.0).
-  - Añadir o eliminar filas/columnas.
-  - Modificar valores.
-  - Calcular sumas, promedios o conteos.
-  - Crear nuevas columnas basadas en condiciones.
-
-Ejemplos de comportamiento esperado:
-
-1. Instrucción: "Crea un archivo con las columnas 'Nombre' y 'Edad'."
-   Respuesta:
-   def modificar_df(df):
-       df = pd.DataFrame(columns=['Nombre', 'Edad'])
-       return df
-
-2. Instrucción: "Crea un archivo que tenga una columna 'Estudiantes' con los valores ['Nicolás','Sandra','Juan'] y otra columna 'Notas' con [1.0, 2.0, 5.0]."
-   Respuesta:
-   def modificar_df(df):
-       df = pd.DataFrame({
-           'Estudiantes': ['Nicolás','Sandra','Juan'],
-           'Notas': [1.0, 2.0, 5.0]
-       })
-       return df
-
-3. Instrucción: "Filtra las filas donde 'Notas' sea mayor que 3.0."
-   Respuesta:
-   def modificar_df(df):
-       df = df[df['Notas'] > 3.0]
-       return df
-
-4. Instrucción: "Promedia los valores de la columna 'Precio' y crea una nueva columna 'Estado' con 'Económico' si el valor < promedio, si no 'Caro'."
-   Respuesta:
-   def modificar_df(df):
-       promedio = df['Precio'].mean()
-       df['Estado'] = np.where(df['Precio'] < promedio, 'Económico', 'Caro')
-       return df
-"""
-
-# --- Fallback mínimo ---
+# --- Lógica de Respaldo para Tareas Comunes (Fallback) ---
 def fallback_processing(df, instruction):
-    try:
-        if instruction.lower().startswith("crea un archivo"):
-            return pd.DataFrame()
-    except:
-        return None
+    """
+    Intenta procesar la instrucción con lógica predefinida si la IA falla.
+    """
+    instruction_lower = instruction.lower()
+
+    # Tarea 1: Añadir columna con un valor
+    if "añade una columna" in instruction_lower and "con el valor" in instruction_lower:
+        try:
+            parts = instruction_lower.split("añade una columna llamada '")
+            col_name = parts[1].split("'")[0]
+            value = instruction.split("con el valor '")[1].split("'")[0]
+            df[col_name] = value
+            return df
+        except:
+            return None
+
+    # Tarea 2: Sumar una columna y colocar el resultado al final
+    if ("suma los valores" in instruction_lower or "calcula la suma" in instruction_lower) and "columna" in instruction_lower:
+        try:
+            col_name = instruction_lower.split("la columna '")[1].split("'")[0]
+            df.loc[len(df)] = [None] * len(df.columns)
+            df.loc[len(df) - 1, col_name] = df[col_name].sum()
+            return df
+        except:
+            return None
+
+    # Tarea 3: Evaluar notas con promedio
+    if "calcula el promedio" in instruction_lower and ("evaluación" in instruction_lower or "valoración" in instruction_lower):
+        try:
+            promedio = df['Notas'].mean()
+            df['Evaluación'] = np.where(df['Notas'] >= promedio, 'Bien', 'Regular')
+            return df
+        except:
+            return None
+    
     return None
 
-# --- La Ruta Principal del Servidor ---
+# --- Ruta Principal ---
 @app.route('/process-excel', methods=['POST'])
 def process_excel():
     instruction = request.form.get('instruction', '')
@@ -80,7 +61,7 @@ def process_excel():
     if not instruction:
         return jsonify({"error": "Por favor, ingresa una instrucción."}), 400
 
-    # Determinar si el usuario subió un archivo o quiere crear uno
+    # Si subió un archivo
     if file:
         try:
             df = pd.read_excel(file)
@@ -88,36 +69,52 @@ def process_excel():
             return jsonify({"error": "No se pudo leer el archivo de Excel.", "detalle_tecnico": str(e)}), 400
     else:
         df = pd.DataFrame()
+        if not ("crea un archivo" in instruction.lower() or "crea un excel" in instruction.lower()):
+            return jsonify({"error": "Para crear un archivo, la instrucción debe empezar con 'crea un archivo' o 'crea un excel'."}), 400
 
     try:
-        # Extraer contexto
+        # Contexto para IA
         columnas = list(df.columns)
         columnas_str = ", ".join([f"'{col}'" for col in columnas])
         primeras_filas = df.head(5).to_string()
 
-        # Construir prompt
+        # Prompt estricto
         prompt = (
-            PROMPT_BASE
-            + "\n--- Contexto del Documento ---\n"
-            + (f"Columnas del DataFrame: {columnas_str}\nPrimeras 5 filas:\n{primeras_filas}\n" if columnas else "El DataFrame está vacío.\n")
-            + "--- Instrucción del Usuario ---\n"
-            + instruction
+            f"Escribe ÚNICAMENTE una función Python válida llamada modificar_df(df).\n"
+            f"- Debe recibir un DataFrame de Pandas llamado df y devolver el DataFrame modificado.\n"
+            f"- Si df está vacío, debes crearlo en base a la instrucción del usuario.\n"
+            f"- No escribas explicaciones, texto adicional ni comentarios, solo el código.\n"
+            f"- No uses ``` ni bloques markdown.\n"
+            f"- El código debe ser ejecutable directamente con exec() en Python.\n\n"
+            f"--- Contexto del Documento ---\n"
+            f"Columnas: {columnas_str if columnas else 'No hay columnas, DataFrame vacío.'}\n"
+            f"Primeras filas:\n{primeras_filas}\n\n"
+            f"--- Instrucción del Usuario ---\n"
+            f"{instruction}\n"
         )
 
-        # Enviar a Gemini
         response = model.generate_content(prompt)
-        gemini_code = response.text.strip('`').strip()
+        gemini_code = response.text.strip()
 
-        # Validaciones básicas
-        if "os." in gemini_code or "subprocess" in gemini_code or "shutil" in gemini_code:
+        # Limpieza de código
+        if gemini_code.startswith("```"):
+            gemini_code = gemini_code.strip("`")
+        if gemini_code.lower().startswith("python"):
+            gemini_code = gemini_code[6:].strip()
+
+        if "def modificar_df" not in gemini_code:
+            raise ValueError("La IA no devolvió una función válida.")
+
+        # Validaciones de seguridad
+        if any(x in gemini_code for x in ["os.", "subprocess", "shutil", "open(", "exec(", "eval("]):
             raise ValueError("Código malicioso detectado.")
 
-        # Ejecutar el código generado
+        # Ejecutar código generado
         globals_dict = {'pd': pd, 'np': np, 'df': df.copy()}
         exec(gemini_code, globals_dict)
         df_modified = globals_dict['modificar_df'](df.copy())
 
-        # Exportar a Excel
+        # Respuesta con archivo Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_modified.to_excel(writer, index=False)
@@ -127,11 +124,11 @@ def process_excel():
             output,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             as_attachment=True,
-            download_name="archivo_modificado.xlsx"
+            download_name="resultado.xlsx"
         )
 
     except Exception as e:
-        # Fallback
+        # Intentar fallback
         print(f"Error con IA, intentando fallback: {e}")
         df_modified_fallback = fallback_processing(df.copy(), instruction)
         
