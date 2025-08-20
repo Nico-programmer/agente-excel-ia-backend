@@ -19,32 +19,9 @@ def fallback_processing(df, instruction):
     """
     Intenta procesar la instrucción con lógica predefinida si la IA falla.
     """
-
-    # Detectar si la instrucción es "crear archivo con columnas y valores"
-    pattern = r"columna '([^']+)'[^\)]*?son ([^)]*)"
-    matches = re.findall(pattern, instruction, flags=re.IGNORECASE)
-
-    if matches:
-        data = {}
-        for col, values_str in matches:
-            # Separar valores por coma y limpiar espacios
-            values = [v.strip() for v in values_str.split(",")]
-            parsed_values = []
-            for v in values:
-                try:
-                    # Intentar convertir a número si aplica
-                    if v.replace(".", "", 1).isdigit():
-                        parsed_values.append(float(v) if "." in v else int(v))
-                    else:
-                        parsed_values.append(v)
-                except:
-                    parsed_values.append(v)
-            data[col] = parsed_values
-        return pd.DataFrame(data)
-
     instruction_lower = instruction.lower()
 
-    # Tarea 1: Añadir columna y asignar un valor
+    # Añadir columna y asignar un valor fijo
     if "añade una columna" in instruction_lower and "con el valor" in instruction_lower:
         try:
             parts = instruction_lower.split("añade una columna llamada '")
@@ -55,28 +32,48 @@ def fallback_processing(df, instruction):
         except:
             return None
 
-    # Tarea 2: Sumar una columna
-    if ("suma los valores" in instruction_lower or "calcula la suma" in instruction_lower) and "columna" in instruction_lower:
+    # Filtrar filas por condición
+    if "filtra" in instruction_lower and "columna" in instruction_lower:
         try:
-            col_name = instruction_lower.split("la columna '")[1].split("'")[0]
-            df.loc[len(df)] = [None] * len(df.columns)
-            df.loc[len(df) - 1, col_name] = df[col_name].sum()
+            col_name = instruction.split("columna '")[1].split("'")[0]
+            if "menor que" in instruction_lower:
+                value = float(re.findall(r"menor que (\d+\.?\d*)", instruction_lower)[0])
+                return df[df[col_name] < value]
+            elif "mayor que" in instruction_lower:
+                value = float(re.findall(r"mayor que (\d+\.?\d*)", instruction_lower)[0])
+                return df[df[col_name] > value]
+            elif "igual a" in instruction_lower:
+                value = re.findall(r"igual a (\d+\.?\d*)", instruction_lower)[0]
+                return df[df[col_name] == float(value)]
+        except:
+            return None
+
+    # Sumar valores de una columna y poner total al final
+    if "suma" in instruction_lower and "columna" in instruction_lower:
+        try:
+            col_name = instruction.split("columna '")[1].split("'")[0]
+            total = df[col_name].sum()
+            nueva_fila = {col: None for col in df.columns}
+            nueva_fila[col_name] = total
+            df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
             return df
         except:
             return None
 
-    # Tarea 3: Evaluar notas por encima del promedio
-    if "calcula el promedio" in instruction_lower and ("evaluación" in instruction_lower or "valoración" in instruction_lower):
+    # Calcular promedio de cualquier columna numérica y crear evaluación
+    if "calcula el promedio" in instruction_lower:
         try:
-            promedio = df['Notas'].mean()
-            df['Evaluación'] = np.where(df['Notas'] >= promedio, 'Bien', 'Regular')
+            col_name = instruction.split("columna '")[1].split("'")[0]
+            promedio = df[col_name].mean()
+            df['Evaluación'] = np.where(df[col_name] >= promedio, 'Arriba del promedio', 'Debajo del promedio')
             return df
         except:
             return None
-    
+
     return None
 
-# --- La Ruta Principal del Servidor ---
+
+# --- Ruta principal ---
 @app.route('/process-excel', methods=['POST'])
 def process_excel():
     instruction = request.form.get('instruction', '')
@@ -85,7 +82,7 @@ def process_excel():
     if not instruction:
         return jsonify({"error": "Por favor, ingresa una instrucción."}), 400
 
-    # Determinar si el usuario subió un archivo o quiere crear uno
+    # Cargar archivo si fue subido
     if file:
         try:
             df = pd.read_excel(file)
@@ -97,64 +94,64 @@ def process_excel():
             return jsonify({"error": "Para crear un archivo, la instrucción debe empezar con 'crea un archivo' o 'crea un excel'."}), 400
 
     try:
-        # Extraer el contexto del documento para la IA
+        # Contexto
         columnas = list(df.columns)
         columnas_str = ", ".join([f"'{col}'" for col in columnas])
         primeras_filas = df.head(5).to_string()
 
-        # Generar el prompt enriquecido
-        prompt = (
-            f"Basándote en la siguiente instrucción de usuario y en el contexto del documento de Excel, "
-            f"escribe **ÚNICAMENTE** una función de Python llamada 'modificar_df' "
-            f"que tome un DataFrame de Pandas 'df' y lo modifique, y que devuelva el DataFrame modificado.\n"
-            f"Si el DataFrame 'df' está vacío, tu tarea es crearlo en base a la instrucción del usuario.\n"
-            f"El código debe ser sintácticamente correcto y estar listo para ser ejecutado. "
-            f"No incluyas ningún texto o explicación adicional.\n"
-            f"--- Contexto del Documento ---\n"
-            f"Columnas del DataFrame: {columnas_str if columnas else 'No hay columnas. El DataFrame está vacío.'}\n"
-            f"Primeras 5 filas:\n{primeras_filas}\n"
-            f"--- Instrucción del Usuario ---\n"
-            f"Instrucción: {instruction}\n"
-            f"--- Ejemplos de Tarea ---\n"
-            f"1. Si la instrucción es 'Crea un archivo con las columnas 'Nombre', 'Edad', 'Ciudad'', la respuesta debería ser:\n"
-            f"def modificar_df(df):\n"
-            f"    df = pd.DataFrame(columns=['Nombre', 'Edad', 'Ciudad'])\n"
-            f"    return df\n\n"
-            f"2. Si la instrucción es 'Crea un archivo con las columnas 'Nombre', 'Edad', 'Ciudad' con valores: "
-            f"Nombre: Juan, María, Pedro | Edad: 25, 30, 22 | Ciudad: Madrid, Barcelona, Valencia', la respuesta debería ser:\n"
-            f"def modificar_df(df):\n"
-            f"    data = {{\n"
-            f"        'Nombre': ['Juan', 'María', 'Pedro'],\n"
-            f"        'Edad': [25, 30, 22],\n"
-            f"        'Ciudad': ['Madrid', 'Barcelona', 'Valencia']\n"
-            f"    }}\n"
-            f"    df = pd.DataFrame(data)\n"
-            f"    return df\n\n"
-            f"3. Si la instrucción es 'Crea un archivo que tenga una columna 'Estudiantes' "
-            f"(los valores en la columna 'Estudiantes' son Nicolás, Sandra y Juan) y otra que diga 'Notas' "
-            f"(los valores en la columna 'Notas' son 1.0, 2.0, 5.0)', la respuesta debería ser:\n"
-            f"def modificar_df(df):\n"
-            f"    data = {{\n"
-            f"        'Estudiantes': ['Nicolás', 'Sandra', 'Juan'],\n"
-            f"        'Notas': [1.0, 2.0, 5.0]\n"
-            f"    }}\n"
-            f"    df = pd.DataFrame(data)\n"
-            f"    return df\n\n"
-        )
-        
+        # Prompt enriquecido
+        prompt = f"""
+Basándote en la siguiente instrucción y en el contexto del Excel, escribe **ÚNICAMENTE**
+una función de Python llamada 'modificar_df' que reciba un DataFrame 'df' de pandas, lo modifique y lo retorne.
+
+- Si el DataFrame está vacío, debes crearlo según la instrucción.
+- El código debe ser válido y sin explicaciones extra.
+- Usa pandas correctamente.
+
+--- Contexto ---
+Columnas actuales: {columnas_str if columnas else 'No hay columnas'}
+Primeras filas:
+{primeras_filas}
+
+--- Instrucción del Usuario ---
+{instruction}
+
+--- Ejemplos ---
+Instrucción: "Crea un archivo con columnas 'Nombre', 'Edad'"
+Respuesta:
+def modificar_df(df):
+    df = pd.DataFrame(columns=['Nombre','Edad'])
+    return df
+
+Instrucción: "Filtra las filas donde 'Notas' sea menor que 3.0"
+Respuesta:
+def modificar_df(df):
+    df = df[df['Notas'] < 3.0]
+    return df
+
+Instrucción: "Suma los valores de la columna 'Precio' y coloca el total en la última fila"
+Respuesta:
+def modificar_df(df):
+    total = df['Precio'].sum()
+    nueva_fila = {col: None for col in df.columns}
+    nueva_fila['Precio'] = total
+    df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
+    return df
+"""
+
         response = model.generate_content(prompt)
         gemini_code = response.text.strip('`').strip()
 
-        # Validaciones de seguridad
+        # Seguridad
         if "os." in gemini_code or "subprocess" in gemini_code or "shutil" in gemini_code:
             raise ValueError("Código malicioso detectado.")
 
-        # Ejecución del código generado
+        # Ejecutar el código generado
         globals_dict = {'pd': pd, 'np': np, 'df': df.copy()}
         exec(gemini_code, globals_dict)
         df_modified = globals_dict['modificar_df'](df.copy())
 
-        # Si el código se ejecuta sin errores, devolvemos el resultado
+        # Exportar a Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_modified.to_excel(writer, index=False)
@@ -168,7 +165,7 @@ def process_excel():
         )
 
     except Exception as e:
-        # Lógica de respaldo
+        # Fallback
         print(f"Error con IA, intentando lógica de respaldo: {e}")
         df_modified_fallback = fallback_processing(df.copy(), instruction)
         
@@ -181,11 +178,11 @@ def process_excel():
                 output,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 as_attachment=True,
-                download_name="resultado.xlsx"
+                download_name="archivo_modificado.xlsx"
             )
         else:
             return jsonify({
-                "error": "Lo siento, no pude entender esa instrucción. Por favor, intenta de nuevo con una tarea más sencilla.",
+                "error": "No pude entender esa instrucción.",
                 "detalle_tecnico": str(e),
                 "codigo_generado_por_gemini": gemini_code if 'gemini_code' in locals() else 'No disponible'
             }), 500
