@@ -181,7 +181,7 @@ def process_excel():
                 output,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 as_attachment=True,
-                download_name="archivo_modificado.xlsx"
+                download_name="resultado.xlsx"
             )
         else:
             return jsonify({
