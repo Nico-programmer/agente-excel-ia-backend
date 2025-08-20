@@ -101,43 +101,43 @@ def process_excel():
 
         # Prompt enriquecido
         prompt = f"""
-Basándote en la siguiente instrucción y en el contexto del Excel, escribe **ÚNICAMENTE**
-una función de Python llamada 'modificar_df' que reciba un DataFrame 'df' de pandas, lo modifique y lo retorne.
+            Basándote en la siguiente instrucción y en el contexto del Excel, escribe **ÚNICAMENTE**
+            una función de Python llamada 'modificar_df' que reciba un DataFrame 'df' de pandas, lo modifique y lo retorne.
 
-- Si el DataFrame está vacío, debes crearlo según la instrucción.
-- El código debe ser válido y sin explicaciones extra.
-- Usa pandas correctamente.
+            - Si el DataFrame está vacío, debes crearlo según la instrucción.
+            - El código debe ser válido y sin explicaciones extra.
+            - Usa pandas correctamente.
 
---- Contexto ---
-Columnas actuales: {columnas_str if columnas else 'No hay columnas'}
-Primeras filas:
-{primeras_filas}
+            --- Contexto ---
+            Columnas actuales: {columnas_str if columnas else 'No hay columnas'}
+            Primeras filas:
+            {primeras_filas}
 
---- Instrucción del Usuario ---
-{instruction}
+            --- Instrucción del Usuario ---
+            {instruction}
 
---- Ejemplos ---
-Instrucción: "Crea un archivo con columnas 'Nombre', 'Edad'"
-Respuesta:
-def modificar_df(df):
-    df = pd.DataFrame(columns=['Nombre','Edad'])
-    return df
+            --- Ejemplos ---
+            Instrucción: "Crea un archivo con columnas 'Nombre', 'Edad'"
+            Respuesta:
+            def modificar_df(df):
+                df = pd.DataFrame(columns=['Nombre','Edad'])
+                return df
 
-Instrucción: "Filtra las filas donde 'Notas' sea menor que 3.0"
-Respuesta:
-def modificar_df(df):
-    df = df[df['Notas'] < 3.0]
-    return df
+            Instrucción: "Filtra las filas donde 'Notas' sea menor que 3.0"
+            Respuesta:
+            def modificar_df(df):
+                df = df[df['Notas'] < 3.0]
+                return df
 
-Instrucción: "Suma los valores de la columna 'Precio' y coloca el total en la última fila"
-Respuesta:
-def modificar_df(df):
-    total = df['Precio'].sum()
-    nueva_fila = {col: None for col in df.columns}
-    nueva_fila['Precio'] = total
-    df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
-    return df
-"""
+            Instrucción: "Suma los valores de la columna 'Precio' y coloca el total en la última fila"
+            Respuesta:
+            def modificar_df(df):
+                total = df['Precio'].sum()
+                nueva_fila = {col: None for col in df.columns}
+                nueva_fila['Precio'] = total
+                df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
+                return df
+        """
 
         response = model.generate_content(prompt)
         gemini_code = response.text.strip('`').strip()
