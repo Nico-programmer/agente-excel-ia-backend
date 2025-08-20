@@ -4,6 +4,7 @@ import google.generativeai as genai
 from flask import Flask, request, jsonify, send_file
 import pandas as pd
 import io
+import numpy as np
 from dotenv import load_dotenv
 
 # --- Configuración Inicial ---
@@ -18,26 +19,49 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 # Crea una aplicación web con Flask
 app = Flask(__name__)
 
-# --- Lógica de Respaldo para Tareas Básicas (Fallback) ---
+# --- Lógica de Respaldo para Tareas Comunes (Fallback) ---
 def fallback_processing(df, instruction):
     """
     Intenta procesar la instrucción con lógica predefinida si la IA falla.
+    Puedes añadir más tareas comunes aquí de manera modular.
     """
-    # Lógica para "añadir columna"
-    if "añade una columna" in instruction.lower() and "con el valor" in instruction.lower():
+    instruction_lower = instruction.lower()
+
+    # Tarea 1: Añadir columna y asignar un valor
+    if "añade una columna" in instruction_lower and "con el valor" in instruction_lower:
         try:
-            # Extraer el nombre de la columna y el valor
-            parts = instruction.lower().split("añade una columna llamada '")
-            col_name_part = parts[1].split("'")[0]
-            val_part = instruction.split("con el valor '")
-            value = val_part[1].split("'")[0]
-            
-            df[col_name_part] = value
+            parts = instruction_lower.split("añade una columna llamada '")
+            col_name = parts[1].split("'")[0]
+            value = instruction.split("con el valor '")[1].split("'")[0]
+            df[col_name] = value
             return df
         except:
-            return None  # Devuelve None si la lógica de respaldo falla
+            return None
 
-    return None # Si no hay lógica de respaldo que coincida
+    # Tarea 2: Sumar una columna y colocar el resultado al final
+    if ("suma los valores" in instruction_lower or "calcula la suma" in instruction_lower) and "columna" in instruction_lower:
+        try:
+            col_name = instruction_lower.split("la columna '")[1].split("'")[0]
+            df.loc[len(df)] = [None] * len(df.columns)
+            df.loc[len(df) - 1, col_name] = df[col_name].sum()
+            return df
+        except:
+            return None
+
+    # Tarea 3: Evaluar notas por encima de un promedio
+    if "calcula el promedio" in instruction_lower and ("evaluación" in instruction_lower or "valoración" in instruction_lower):
+        try:
+            promedio = df['Notas'].mean()
+            df['Evaluación'] = np.where(df['Notas'] >= promedio, 'Bien', 'Regular')
+            return df
+        except:
+            return None
+    
+    # Puedes añadir más lógicas de respaldo aquí
+    # if "filtrar" in instruction_lower:
+    #    ...
+
+    return None
 
 # --- La Ruta Principal del Servidor ---
 @app.route('/process-excel', methods=['POST'])
@@ -48,19 +72,18 @@ def process_excel():
     file = request.files['file']
     instruction = request.form.get('instruction', '')
 
-    df = pd.read_excel(file)
+    try:
+        df = pd.read_excel(file)
+    except Exception as e:
+        return jsonify({"error": "No se pudo leer el archivo de Excel.", "detalle_tecnico": str(e)}), 400
 
     try:
-        # **PASO CLAVE: EXTRAER INFORMACIÓN DEL DOCUMENTO**
-        # Tomamos los nombres de las columnas y los convertimos en una cadena de texto
+        # PASO CLAVE: EXTRAER INFORMACIÓN DEL DOCUMENTO
         columnas = list(df.columns)
         columnas_str = ", ".join([f"'{col}'" for col in columnas])
-
-        # Tomamos las primeras 5 filas para que la IA vea la estructura de los datos
         primeras_filas = df.head(5).to_string()
 
         # --- PRIMER INTENTO: Generación de código con IA ---
-        # **PROMPT ENRIQUECIDO**
         prompt = (
             f"Basándote en la siguiente instrucción de usuario y en el contexto del documento de Excel, "
             f"escribe **ÚNICAMENTE** una función de Python llamada 'modificar_df' "
@@ -72,40 +95,22 @@ def process_excel():
             f"Primeras 5 filas:\n{primeras_filas}\n"
             f"--- Instrucción del Usuario ---\n"
             f"Instrucción: {instruction}\n"
-            f"--- Ejemplos de Tareas ---\n"
-            
-            f"1. Si la instrucción es 'Añade una columna llamada 'Estado' con el valor 'Pendiente'', la respuesta es:\n"
-            f"def modificar_df(df):\n"
-            f"    df['Estado'] = 'Pendiente'\n"
-            f"    return df\n\n"
-            
-            f"2. Si la instrucción es 'Crea una columna 'Total' sumando las columnas 'Ventas' y 'Costos'', la respuesta es:\n"
+            f"--- Ejemplo de Tarea ---\n"
+            f"Si la instrucción es 'Crea una columna 'Total' sumando las columnas 'Ventas' y 'Costos'', la respuesta debería ser:\n"
             f"def modificar_df(df):\n"
             f"    df['Total'] = df['Ventas'] + df['Costos']\n"
-            f"    return df\n\n"
-            
-            f"3. Si la instrucción es 'Suma la columna 'Ventas' y coloca el resultado en la última fila', la respuesta es:\n"
-            f"def modificar_df(df):\n"
-            f"    df.loc[len(df)] = [None] * len(df.columns)\n"
-            f"    df.loc[len(df) - 1, 'Ventas'] = df['Ventas'].sum()\n"
-            f"    return df\n\n"
-            
-            f"4. Si la instrucción es 'Pon 'Aprobado' a las notas mayores de 3 y 'Reprobado' a las demás', la respuesta es:\n"
-            f"def modificar_df(df):\n"
-            f"    import numpy as np\n"
-            f"    df['Estado'] = np.where(df['Notas'] > 3, 'Aprobado', 'Reprobado')\n"
-            f"    return df\n\n"
+            f"    return df"
         )
         
         response = model.generate_content(prompt)
         gemini_code = response.text.strip('`').strip()
 
-        # Validaciones de seguridad
+        # Validaciones de seguridad para evitar código malicioso
         if "os." in gemini_code or "subprocess" in gemini_code or "shutil" in gemini_code:
             raise ValueError("Código malicioso detectado.")
 
         # Ejecución del código generado
-        globals_dict = {'pd': pd, 'df': df.copy()}
+        globals_dict = {'pd': pd, 'np': np, 'df': df.copy()}
         exec(gemini_code, globals_dict)
         df_modified = globals_dict['modificar_df'](df.copy())
 
@@ -128,7 +133,6 @@ def process_excel():
         df_modified_fallback = fallback_processing(df.copy(), instruction)
         
         if df_modified_fallback is not None:
-            # Si el fallback funciona, devuelve el archivo
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_modified_fallback.to_excel(writer, index=False)
@@ -140,7 +144,6 @@ def process_excel():
                 download_name="archivo_modificado.xlsx"
             )
         else:
-            # Si ambos fallan, muestra un error amigable
             return jsonify({
                 "error": "Lo siento, no pude entender esa instrucción. Por favor, intenta de nuevo con una tarea más sencilla.",
                 "detalle_tecnico": str(e),
