@@ -72,12 +72,29 @@ def process_excel():
             f"Primeras 5 filas:\n{primeras_filas}\n"
             f"--- Instrucción del Usuario ---\n"
             f"Instrucción: {instruction}\n"
-            f"--- Ejemplo de Tarea ---\n"
-            f"Si la instrucción es 'Suma la columna 'Ventas' y coloca el resultado en la última fila', la respuesta debería ser:\n"
+            f"--- Ejemplos de Tareas ---\n"
+            
+            f"1. Si la instrucción es 'Añade una columna llamada 'Estado' con el valor 'Pendiente'', la respuesta es:\n"
+            f"def modificar_df(df):\n"
+            f"    df['Estado'] = 'Pendiente'\n"
+            f"    return df\n\n"
+            
+            f"2. Si la instrucción es 'Crea una columna 'Total' sumando las columnas 'Ventas' y 'Costos'', la respuesta es:\n"
+            f"def modificar_df(df):\n"
+            f"    df['Total'] = df['Ventas'] + df['Costos']\n"
+            f"    return df\n\n"
+            
+            f"3. Si la instrucción es 'Suma la columna 'Ventas' y coloca el resultado en la última fila', la respuesta es:\n"
             f"def modificar_df(df):\n"
             f"    df.loc[len(df)] = [None] * len(df.columns)\n"
             f"    df.loc[len(df) - 1, 'Ventas'] = df['Ventas'].sum()\n"
-            f"    return df"
+            f"    return df\n\n"
+            
+            f"4. Si la instrucción es 'Pon 'Aprobado' a las notas mayores de 3 y 'Reprobado' a las demás', la respuesta es:\n"
+            f"def modificar_df(df):\n"
+            f"    import numpy as np\n"
+            f"    df['Estado'] = np.where(df['Notas'] > 3, 'Aprobado', 'Reprobado')\n"
+            f"    return df\n\n"
         )
         
         response = model.generate_content(prompt)
