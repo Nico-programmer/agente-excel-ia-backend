@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import google.generativeai as genai
 from flask import Flask, request, jsonify, send_file
 import pandas as pd
@@ -18,6 +19,29 @@ def fallback_processing(df, instruction):
     """
     Intenta procesar la instrucción con lógica predefinida si la IA falla.
     """
+
+    # Detectar si la instrucción es "crear archivo con columnas y valores"
+    pattern = r"columna '([^']+)' \(los valores.*?son ([^)]+)\)"
+    matches = re.findall(pattern, instruction, flags=re.IGNORECASE)
+
+    if matches:
+        data = {}
+        for col, values_str in matches:
+            # Separar valores por coma y limpiar espacios
+            values = [v.strip() for v in values_str.split(",")]
+            parsed_values = []
+            for v in values:
+                try:
+                    # Intentar convertir a número si aplica
+                    if v.replace(".", "", 1).isdigit():
+                        parsed_values.append(float(v) if "." in v else int(v))
+                    else:
+                        parsed_values.append(v)
+                except:
+                    parsed_values.append(v)
+            data[col] = parsed_values
+        return pd.DataFrame(data)
+
     instruction_lower = instruction.lower()
 
     # Tarea 1: Añadir columna y asignar un valor
@@ -31,7 +55,7 @@ def fallback_processing(df, instruction):
         except:
             return None
 
-    # Tarea 2: Sumar una columna y colocar el resultado al final
+    # Tarea 2: Sumar una columna
     if ("suma los valores" in instruction_lower or "calcula la suma" in instruction_lower) and "columna" in instruction_lower:
         try:
             col_name = instruction_lower.split("la columna '")[1].split("'")[0]
@@ -41,7 +65,7 @@ def fallback_processing(df, instruction):
         except:
             return None
 
-    # Tarea 3: Evaluar notas por encima de un promedio
+    # Tarea 3: Evaluar notas por encima del promedio
     if "calcula el promedio" in instruction_lower and ("evaluación" in instruction_lower or "valoración" in instruction_lower):
         try:
             promedio = df['Notas'].mean()
@@ -103,6 +127,16 @@ def process_excel():
             f"        'Nombre': ['Juan', 'María', 'Pedro'],\n"
             f"        'Edad': [25, 30, 22],\n"
             f"        'Ciudad': ['Madrid', 'Barcelona', 'Valencia']\n"
+            f"    }}\n"
+            f"    df = pd.DataFrame(data)\n"
+            f"    return df\n\n"
+            f"3. Si la instrucción es 'Crea un archivo que tenga una columna 'Estudiantes' "
+            f"(los valores en la columna 'Estudiantes' son Nicolás, Sandra y Juan) y otra que diga 'Notas' "
+            f"(los valores en la columna 'Notas' son 1.0, 2.0, 5.0)', la respuesta debería ser:\n"
+            f"def modificar_df(df):\n"
+            f"    data = {{\n"
+            f"        'Estudiantes': ['Nicolás', 'Sandra', 'Juan'],\n"
+            f"        'Notas': [1.0, 2.0, 5.0]\n"
             f"    }}\n"
             f"    df = pd.DataFrame(data)\n"
             f"    return df\n\n"
